@@ -35,8 +35,6 @@ namespace OpenLibraryRx.P3
         public async Task<(int totalItems, List<Volume> items)> SearchByAuthorAsync(
             string author, int startIndex, int maxResults, CancellationToken ct)
         {
-            // Google Books: q=inauthor:NAME
-            // maxResults ∈ [1..40], startIndex ≥ 0
             if (maxResults < 1) maxResults = 20;
             if (maxResults > 40) maxResults = 40;
             if (startIndex < 0) startIndex = 0;
@@ -47,7 +45,7 @@ namespace OpenLibraryRx.P3
             url.Append("&startIndex=").Append(startIndex);
             url.Append("&maxResults=").Append(maxResults);
             url.Append("&printType=books");
-            // polje 'fields' smanjuje payload
+            
             url.Append("&fields=totalItems,items(volumeInfo/title,volumeInfo/description,volumeInfo/infoLink)");
 
             using (var resp = await _http.GetAsync(url.ToString(), HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false))

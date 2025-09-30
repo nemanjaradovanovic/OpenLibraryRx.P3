@@ -26,10 +26,8 @@ namespace OpenLibraryRx.P3
 
         private readonly object _consoleLock = new object();
 
-        // Google Books klijent
         private readonly GoogleBooksClient _gb = new GoogleBooksClient();
 
-        // In-memory response cache (TTL 5 min)
         private readonly ResponseCache _cache = new ResponseCache(TimeSpan.FromMinutes(5));
 
         public WebServer(string prefix)
@@ -39,7 +37,6 @@ namespace OpenLibraryRx.P3
 
         public void Start()
         {
-            // Rx pipeline: obrada na TaskPoolScheduler (multithread)
             _subscription = _incoming
                 .ObserveOn(TaskPoolScheduler.Default)
                 .SelectMany(ctx => Observable.FromAsync(() => HandleRequestAsync(ctx)))
@@ -66,7 +63,7 @@ namespace OpenLibraryRx.P3
                 HttpListenerContext ctx = null;
                 try
                 {
-                    ctx = _listener.GetContext(); // blokira
+                    ctx = _listener.GetContext(); 
                 }
                 catch (ObjectDisposedException) { break; }
                 catch (HttpListenerException) { break; }
@@ -135,7 +132,6 @@ namespace OpenLibraryRx.P3
                         return;
                     }
 
-                    // --- KEŠ PROVERA ---
                     var cacheKey = BuildCacheKey(author, page, limit, wantHtml);
                     if (_cache.TryGet(cacheKey, out var cached))
                     {
@@ -145,7 +141,6 @@ namespace OpenLibraryRx.P3
 
                     int startIndex = (page - 1) * limit;
 
-                    // poziv prema Google Books (async)
                     using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
                     {
                         var (totalItems, volumes) = await _gb.SearchByAuthorAsync(author, startIndex, limit, cts.Token).ConfigureAwait(false);
@@ -161,7 +156,6 @@ namespace OpenLibraryRx.P3
                             return;
                         }
 
-                        // === Rx obrada opisa: metrics po knjizi, paralelizovano ===
                         var processed = await volumes
                             .ToObservable()
                             .ObserveOn(TaskPoolScheduler.Default)
@@ -181,7 +175,6 @@ namespace OpenLibraryRx.P3
                             .ToTask()
                             .ConfigureAwait(false);
 
-                        // sortiranje po UppercaseCount, pa UniqueCount (oba desc)
                         processed = processed
                             .OrderByDescending(x => x.UppercaseCount)
                             .ThenByDescending(x => x.UniqueCount)
@@ -191,7 +184,7 @@ namespace OpenLibraryRx.P3
                         {
                             var html = BuildBooksHtml(author, page, limit, totalItems, processed);
                             var payload = Encoding.UTF8.GetBytes(html);
-                            _cache.Set(cacheKey, payload); // --- KEŠ SET (HTML) ---
+                            _cache.Set(cacheKey, payload); 
                             await WriteBytesAsync(ctx, 200, payload, "text/html; charset=utf-8");
                         }
                         else
@@ -213,7 +206,7 @@ namespace OpenLibraryRx.P3
                             };
                             var json = JsonConvert.SerializeObject(response, Formatting.Indented);
                             var payload = Encoding.UTF8.GetBytes(json);
-                            _cache.Set(cacheKey, payload); // --- KEŠ SET (JSON) ---
+                            _cache.Set(cacheKey, payload); 
                             await WriteBytesAsync(ctx, 200, payload, "application/json; charset=utf-8");
                         }
                         return;
@@ -238,10 +231,7 @@ namespace OpenLibraryRx.P3
             }
         }
 
-        // ---------- Analiza opisa (reči sa velikim slovom + unikatne) ----------
-
-        // Unicode-friendly tokenizacija reči:
-        // \p{L} = slovo; dopuštamo i ' i - unutar reči
+        
         private static readonly Regex WordRegex = new Regex(@"(?<=^|[^'\p{L}])(['\-]?\p{L}[\p{L}'\-]*)",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
@@ -270,7 +260,7 @@ namespace OpenLibraryRx.P3
             return (upper, uniq.Count);
         }
 
-        // ---------- HTML UI ----------
+       
 
         private static string H(string s) => HttpUtility.HtmlEncode(s ?? "");
 
@@ -317,40 +307,32 @@ namespace OpenLibraryRx.P3
         private static string BuildLandingHtml()
         {
             return @"<!doctype html>
-<html lang=""en"">
+<html lang=""sr"">
 <meta charset=""utf-8""/>
-<title>Google Books Rx Server (P3)</title>
+<title>Google Books Rx Server — P3</title>
 <style>
  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; line-height:1.5 }
- input { padding:.35rem; font-size:1rem; }
- .row { margin:.5rem 0 }
  code { background:#f5f5f5; padding:.15rem .35rem; border-radius:.25rem }
- small { color:#666 }
+ ul { margin-top:.75rem }
 </style>
 
 <h1>Google Books Rx Server — P3</h1>
 <p>
-  Endpointi: <code>/health</code>, <code>/books?author=...</code> (HTML dodaj sa <code>&format=html</code>).<br/>
-  Obrada ide kroz <b>Reactive Extensions (Rx)</b> pipeline na <code>TaskPoolScheduler</code>; Accept je na klasičnoj niti.
+  Endpointi: <code>/books</code> i <code>/health</code>. 
+  Dodaj <code>&format=html</code> za HTML prikaz rezultata.
 </p>
 
 <h2>Primeri</h2>
 <ul>
-  <li><a href=""/books?author=tolkien&limit=10"">/books?author=tolkien&limit=10</a> (JSON)</li>
-  <li><a href=""/books?author=tolkien&limit=10&format=html"">/books?author=tolkien&limit=10&format=html</a> (HTML)</li>
-  <li>Health: <a href=""/health"">/health</a></li>
+  <li><a href=""/books?author=tolkien&limit=5"">/books?author=tolkien&limit=5</a></li>
+  <li><a href=""/books?author=tolkien&limit=5&format=html"">/books?author=tolkien&limit=5&format=html</a></li>
+  <li><a href=""/books?author=asimov&page=2&limit=10"">/books?author=asimov&page=2&limit=10</a></li>
+  <li><a href=""/health"">/health</a></li>
 </ul>
 
-<h2>Probaj ovde</h2>
-<form method=""get"" action=""/books"">
-  <div class=""row"">author: <input name=""author"" placeholder=""npr. tolkien"" required/></div>
-  <div class=""row"">page: <input type=""number"" name=""page"" min=""1"" value=""1"" style=""width:5rem""/></div>
-  <div class=""row"">limit (≤ 40): <input type=""number"" name=""limit"" min=""1"" max=""40"" value=""20"" style=""width:5rem""/></div>
-  <div class=""row""><label><input type=""checkbox"" name=""format"" value=""html""> HTML view</label></div>
-  <button type=""submit"">Search</button>
-</form>
 </html>";
         }
+
 
         private static string BuildErrorHtml(string message)
         {
@@ -371,7 +353,7 @@ namespace OpenLibraryRx.P3
 </html>";
         }
 
-        // ---------- Cache key helper ----------
+       
 
         private static string BuildCacheKey(string author, int page, int limit, bool html)
         {
@@ -383,7 +365,7 @@ namespace OpenLibraryRx.P3
             return $"books:author={author}&page={page}&limit={limit}&format={(html ? "html" : "json")}";
         }
 
-        // ---------- modeli ----------
+       
 
         private sealed class BookView
         {
@@ -394,8 +376,7 @@ namespace OpenLibraryRx.P3
             public int UniqueCount { get; set; }
         }
 
-        // ---------- async write helpers ----------
-
+      
         private static async Task WriteTextAsync(HttpListenerContext ctx, int status, string text, string contentType)
         {
             var buf = Encoding.UTF8.GetBytes(text ?? "");

@@ -13,7 +13,7 @@ namespace OpenLibraryRx.P3
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Booting on {prefix}");
 
             _server = new WebServer(prefix);
-            _server.Start(); // Accept na klasičnoj niti; obrada ide kroz Rx pipeline
+            _server.Start();
 
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Ready. Open your browser at {prefix}");
             Console.WriteLine("Press Enter to stop...");
